@@ -83,3 +83,78 @@ function Get-AzureADGraphTokenFromClientSecret {
     $oauth_resp = $resp.Content | ConvertFrom-Json
     $oauth_resp.access_token    
 }
+
+function Get-UniqueDomains{
+    param (
+        [Parameter(Mandatory)]
+        $urls
+    )
+
+    $domains = [System.Collection.ArrayList]@()
+
+    $urls | ForEach-Object {
+        $domain = Get-DomainFromUrl $_
+        $domains.Add($domain)
+    }
+
+    $urls | Sort-Object | Get-Unique
+}
+
+function Get-UnregisteredDomains{
+    param (
+        [Parameter(Mandatory)]
+        $domains
+    )
+
+    $url = "https://rdap.verisign.com/com/v1/domain/"
+    $unregisteredDomains = [System.Collections.ArrayList]@()
+
+    $domains | ForEach-Object {
+        $domainUrl = $url + $_
+        $resp = try{
+            Invoke-WebRequest -Uri $domainUrl
+        }
+        catch [System.Net.WebException] 
+        {
+            $_.Exception.Response
+        }
+        if ($resp.StatusCode.value__ -eq 404)
+        {
+            $null = $unregisteredDomains.Add($_)
+        }
+    }
+
+    $unregisteredDomains
+}
+
+function Get-VulnerableReplyURLs{
+    param (
+        [Parameter(Mandatory)]
+        $sps
+    )
+
+    $replyUrls = [System.Collections.ArrayList]@()
+
+    # Get all reply urls
+    $sps | ForEach-Object {
+        $sp = $_
+        $sp.ReplyUrls | ForEach-Object{
+            $uri = [System.Uri]$_
+            if ($uri.Scheme -eq "https") {
+                if (($uri.Host.ToCharArray() | Where-Object {$_ -eq '.'} | Measure-Object).Count -gt 1) {
+                    $parts = $uri.Host.split('.')
+                    $domain = $parts[-2] + "." + $parts[-1]
+                    $null = $replyUrls.Add($domain)
+                } 
+                elseif (($uri.Host.ToCharArray() | Where-Object {$_ -eq '.'} | Measure-Object).Count -eq 1) {
+                    $null = $replyUrls.Add($uri.Host)
+                }
+            }
+        }
+    }
+
+    # Sort and get unique
+    $domains = $replyUrls | Sort-Object | Get-Unique
+
+    Get-UnregisteredDomains($domains)
+}
