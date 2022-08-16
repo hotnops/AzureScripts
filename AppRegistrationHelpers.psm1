@@ -100,37 +100,79 @@ function Get-UniqueDomains{
     $urls | Sort-Object | Get-Unique
 }
 
+
 function Get-UnregisteredDomains{
     param (
         [Parameter(Mandatory)]
-        $domains
+        $domains,
+        [Parameter(Mandatory)]
+        $apiKey
     )
 
-    $url = "https://rdap.verisign.com/com/v1/domain/"
+    $url = "https://domainr.p.rapidapi.com/v2/status?mashape-key=${apiKey}&domain="
     $unregisteredDomains = [System.Collections.ArrayList]@()
 
+    $headers = @{}
+    $headers["X-RapidAPI-Key"] = $apiKey
+    $headers["X-RapidAPI-Host"] = "domainr.p.rapidapi.com"
+
     $domains | ForEach-Object {
+
         $domainUrl = $url + $_
         $resp = try{
-            Invoke-WebRequest -Uri $domainUrl
+            Invoke-WebRequest -Uri $domainUrl -Headers $headers
         }
         catch [System.Net.WebException] 
         {
             $_.Exception.Response
         }
-        if ($resp.StatusCode.value__ -eq 404)
-        {
-            $null = $unregisteredDomains.Add($_)
+        $respObj = $resp | ConvertFrom-Json
+        $stringList = @("inactive", "marketed", "expiring", "deleting", "priced", "transferable", "premium", "suffix", "undelegated")
+        if ($null -ne ($stringList | ? { $respObj.status.status -match $_ })) {
+            $null = $unregisteredDomains.Add("$_")
         }
     }
 
     $unregisteredDomains
 }
 
-function Get-VulnerableReplyURLs{
+function Get-ServicePrincipals{
     param (
         [Parameter(Mandatory)]
-        $sps
+        $graphToken
+    )
+
+    $sps = [System.Collections.ArrayList]@()
+
+    $headers = @{}
+    $headers['Authorization'] = "Bearer ${graphToken}"
+    $headers['Content-Type'] = "application/json"
+
+    $uri = "https://graph.microsoft.com/v1.0/servicePrincipals"
+
+    $response = (Invoke-WebRequest -Headers $headers -Uri $uri).Content | ConvertFrom-Json
+
+    $response.value | ForEach-Object { $null = $sps.Add($_)}
+
+    while ($response.'@odata.nextLink') {
+        $uri = $response.'@odata.nextLink'
+        $response = (Invoke-WebRequest -Headers $headers -Uri $uri).Content | ConvertFrom-Json
+
+        $response.value | ForEach-Object { $null = $sps.Add($_)}
+    }
+
+    $sps
+
+}
+
+
+
+function Get-VulnerableRedirectURIs{
+    param (
+        [Parameter(Mandatory)]
+        $sps,
+        [Parameter(Mandatory)]
+        $rapidApiKey
     )
 
     $replyUrls = [System.Collections.ArrayList]@()
@@ -141,7 +183,10 @@ function Get-VulnerableReplyURLs{
         $sp.ReplyUrls | ForEach-Object{
             $uri = [System.Uri]$_
             if ($uri.Scheme -eq "https") {
-                if (($uri.Host.ToCharArray() | Where-Object {$_ -eq '.'} | Measure-Object).Count -gt 1) {
+                if ($uri.Host.EndsWith("azurewebsites.net") -or $uri.Host.EndsWith("cloudapp.net")){
+                    $null = $replyUrls.Add($uri.Host)
+                }
+                elseif (($uri.Host.ToCharArray() | Where-Object {$_ -eq '.'} | Measure-Object).Count -gt 1) {
                     $parts = $uri.Host.split('.')
                     $domain = $parts[-2] + "." + $parts[-1]
                     $null = $replyUrls.Add($domain)
@@ -156,5 +201,5 @@ function Get-VulnerableReplyURLs{
     # Sort and get unique
     $domains = $replyUrls | Sort-Object | Get-Unique
 
-    Get-UnregisteredDomains($domains)
+    Get-UnregisteredDomains $domains $rapidApiKey
 }
