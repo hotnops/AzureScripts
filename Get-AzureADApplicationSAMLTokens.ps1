@@ -22,7 +22,6 @@ function Get-AllAzureADAWSApplicationSAMLTokens {
         $servicePrincipals,
         [Parameter(Mandatory)]
         $estsAuthPersistentCookie
-        
     )
     
     $returnItems = [System.Collections.ArrayList]@()
@@ -110,3 +109,32 @@ function Get-AzureADAWSApplicationSAMLToken {
     Get-SAMLResponseData $samlResponse
 
 }
+
+function Invoke-LoginToAllAvailableAWSAccounts {
+    param (
+        [Parameter(Mandatory)]
+        $tenantId,
+        [Parameter(Mandatory)]
+        $servicePrincipals,
+        [Parameter(Mandatory)]
+        $estsAuthPersistentCookie
+    )
+
+    $samlAssertions = Get-AllAzureADAWSApplicationSAMLTokens $tenantId $servicePrincipals $estsAuthPersistentCookie
+
+    $returnItems = [System.Collections.ArrayList]@()
+
+    $samlAssertions | ForEach-Object {
+        $roleArn = $_['role-arn']
+        $principalArn = $_['principal-arn']
+        $samlAssertion = $_['saml-assertion']
+        $duration = 3600
+
+        $awsSamlResponse = Use-STSRoleWithSAML -RoleArn $roleArn -PrincipalArn $principalArn -SAMLAssertion $samlAssertion -DurationInSeconds $duration
+        $null = $returnItems.Add($awsSamlResponse)
+    }
+
+    return ,$returnItems
+
+}
+
