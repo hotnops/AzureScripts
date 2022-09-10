@@ -129,7 +129,7 @@ function Get-UnregisteredDomains{
         $respObj = $resp | ConvertFrom-Json
         $stringList = @("inactive", "marketed", "expiring", "deleting", "priced", "transferable", "premium", "suffix", "undelegated")
         if ($null -ne ($stringList | ? { $respObj.status.status -match $_ })) {
-            $null = $unregisteredDomains.Add("$_")
+            $null = $unregisteredDomains.Add("$_ " + $respObj.status.status)
         }
     }
 
